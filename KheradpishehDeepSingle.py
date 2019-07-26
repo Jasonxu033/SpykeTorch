@@ -92,11 +92,15 @@ class KheradpishehMNIST(nn.Module):
             spk_out = sf.pooling(spk, 2, 2, 1)
             return spk_out
         else:
+            print("input:", input.shape)
             pot = self.conv1(input)
             spk, pot = sf.fire(pot, self.conv1_t, True)
+            print("spk_conv1:", spk.shape)
             pot = self.conv2(sf.pad(sf.pooling(spk, 2, 2, 1), (1, 1, 1, 1)))
             spk, pot = sf.fire(pot, self.conv2_t, True)
+            print("spk_conv2:", spk.shape)
             spk = sf.pooling(spk, 2, 2, 1)
+            print("spk_pool1:", spk.shape)
             return spk
 
     def stdp(self, layer_idx):
@@ -127,6 +131,7 @@ def test(network, data, target, layer_idx):
         if use_cuda:
             data_in = data_in.cuda()
         output, _ = network(data_in, layer_idx).max(dim=0)
+        print("output:", output.shape, '\n\n\n')
         ans[i] = output.reshape(-1).cpu().numpy()
         t[i] = target[i]
     return np.array(ans), np.array(t)
@@ -153,13 +158,16 @@ class S1Transform:
 
 kernels = [utils.DoGKernel(7, 1, 2),
            utils.DoGKernel(7, 2, 1), ]
-filter = utils.Filter(kernels, padding=3, thresholds=50)
+filter = utils.Filter(kernels, padding=3, thresholds=50, type="gray")
 s1 = S1Transform(filter)
 
 data_root = "data"
-MNIST_train = utils.CacheDataset(torchvision.datasets.MNIST(root=data_root, train=True, download=True, transform=s1))
-MNIST_test = utils.CacheDataset(torchvision.datasets.MNIST(root=data_root, train=False, download=True, transform=s1))
-MNIST_loader = DataLoader(MNIST_train, batch_size=len(MNIST_train), shuffle=False)
+# MNIST_train = utils.CacheDataset(torchvision.datasets.MNIST(root=data_root, train=True, download=True, transform=s1))
+# print(type(MNIST_train))
+
+MNIST_test = utils.CacheDataset(ImageFolder(root="demo", transform=s1))
+# MNIST_test = utils.CacheDataset(torchvision.datasets.MNIST(root=data_root, train=False, download=True, transform=s1))
+# MNIST_loader = DataLoader(MNIST_train, batch_size=len(MNIST_train), shuffle=False)
 MNIST_testLoader = DataLoader(MNIST_test, batch_size=len(MNIST_test), shuffle=False)
 
 kheradpisheh = KheradpishehMNIST()
@@ -167,46 +175,46 @@ if use_cuda:
     kheradpisheh.cuda()
 
 # Training The First Layer
-print("Training the first layer")
+print("load weights for the first layer")
 if os.path.isfile("weights/saved_l1.net"):
     if use_cuda:
         kheradpisheh.load_state_dict(torch.load("weights/saved_l1.net"))
     else:
         kheradpisheh.load_state_dict(torch.load("weights/saved_l1.net", map_location='cpu'))
-else:
-    for epoch in range(2):
-        print("Epoch", epoch)
-        iter = 0
-        for data, _ in MNIST_loader:
-            print("Iteration", iter)
-            train_unsupervise(kheradpisheh, data, 1)
-            print("Done!")
-            iter += 1
-    torch.save(kheradpisheh.state_dict(), "weights/saved_l1.net")
+# else:
+#     for epoch in range(2):
+#         print("Epoch", epoch)
+#         iter = 0
+#         for data, _ in MNIST_loader:
+#             print("Iteration", iter)
+#             train_unsupervise(kheradpisheh, data, 1)
+#             print("Done!")
+#             iter += 1
+#     torch.save(kheradpisheh.state_dict(), "weights/saved_l1.net")
 
 # Training The Second Layer
-print("Training the second layer")
+print("load weights for the second layer")
 if os.path.isfile("weights/saved_l2.net"):
     if use_cuda:
         kheradpisheh.load_state_dict(torch.load("weights/saved_l2.net"))
     else:
         kheradpisheh.load_state_dict(torch.load("weights/saved_l2.net", map_location='cpu'))
-else:
-    for epoch in range(2):
-        print("Epoch", epoch)
-        iter = 0
-        for data, _ in MNIST_loader:
-            print("Iteration", iter)
-            train_unsupervise(kheradpisheh, data, 2)
-            print("Done!")
-            iter += 1
-    torch.save(kheradpisheh.state_dict(), "weights/saved_l2.net")
+# else:
+#     for epoch in range(2):
+#         print("Epoch", epoch)
+#         iter = 0
+#         for data, _ in MNIST_loader:
+#             print("Iteration", iter)
+#             train_unsupervise(kheradpisheh, data, 2)
+#             print("Done!")
+#             iter += 1
+#     torch.save(kheradpisheh.state_dict(), "weights/saved_l2.net")
 
 # Classification
 # Get train data
-for data, target in MNIST_loader:
-    train_X, train_y = test(kheradpisheh, data, target, 2)
-
+# for data, target in MNIST_loader:
+#     train_X, train_y = test(kheradpisheh, data, target, 2)
+#     print(train_X.shape)
 # Get test data
 for data, target in MNIST_testLoader:
     test_X, test_y = test(kheradpisheh, data, target, 2)
@@ -214,28 +222,28 @@ for data, target in MNIST_testLoader:
 # SVM
 from sklearn.svm import LinearSVC
 from sklearn.externals import joblib
-
+print("load weights for the svm layer")
 if os.path.isfile("weights/my_model.m"):
     clf = joblib.load("weights/my_model.m")
-else:
-    clf = LinearSVC(C=2.4)
-    clf.fit(train_X, train_y)
-    joblib.dump(clf, "weights/my_model.m")
-predict_train = clf.predict(train_X)
+# else:
+#     clf = LinearSVC(C=2.4)
+#     clf.fit(train_X, train_y)
+#     joblib.dump(clf, "weights/my_model.m")
+# predict_train = clf.predict(train_X)
 predict_test = clf.predict(test_X)
+print(predict_test)
 
-
-def get_performance(X, y, predictions):
-    correct = 0
-    silence = 0
-    for i in range(len(predictions)):
-        if X[i].sum() == 0:
-            silence += 1
-        else:
-            if predictions[i] == y[i]:
-                correct += 1
-    return (correct / len(X), (len(X) - (correct + silence)) / len(X), silence / len(X))
-
-
-print(get_performance(train_X, train_y, predict_train))
-print(get_performance(test_X, test_y, predict_test))
+# def get_performance(X, y, predictions):
+#     correct = 0
+#     silence = 0
+#     for i in range(len(predictions)):
+#         if X[i].sum() == 0:
+#             silence += 1
+#         else:
+#             if predictions[i] == y[i]:
+#                 correct += 1
+#     return (correct / len(X), (len(X) - (correct + silence)) / len(X), silence / len(X))
+#
+#
+# # print(get_performance(train_X, train_y, predict_train))
+# print(get_performance(test_X, test_y, predict_test))
